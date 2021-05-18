@@ -37,21 +37,21 @@
 #define G 9.81f;
 
 struct selfState_s {
-  float estimatedZ; // The current Z estimate, has same offset as asl
-  float velocityZ; // Vertical speed (world frame) integrated from vertical acceleration (m/s)
-  float estAlphaZrange;
-  float estAlphaAsl;
-  float velocityFactor;
-  float vAccDeadband; // Vertical acceleration deadband
-  float velZAlpha;   // Blending factor to avoid vertical speed to accumulate error
-  float estimatedVZ;
+    float estimatedZ; // The current Z estimate, has same offset as asl
+    float velocityZ; // Vertical speed (world frame) integrated from vertical acceleration (m/s)
+    float estAlphaZrange;
+    float estAlphaAsl;
+    float velocityFactor;
+    float vAccDeadband; // Vertical acceleration deadband
+    float velZAlpha;   // Blending factor to avoid vertical speed to accumulate error
+    float estimatedVZ;
 };
 
 static struct selfState_s state = {
   .estimatedZ = 0.0f,
   .velocityZ = 0.0f,
   .estAlphaZrange = 0.90f,
-  .estAlphaAsl = 0.997f,
+  .estAlphaAsl = 0.95f,
   .velocityFactor = 1.0f,
   .vAccDeadband = 0.04f,
   .velZAlpha = 0.995f,
@@ -62,59 +62,72 @@ static void positionEstimateInternal(state_t* estimate, const baro_t* baro, cons
 static void positionUpdateVelocityInternal(float accWZ, float dt, struct selfState_s* state);
 
 void positionEstimate(state_t* estimate, const baro_t* baro, const tofMeasurement_t* tofMeasurement, float dt, uint32_t tick) {
-  positionEstimateInternal(estimate, baro, tofMeasurement, dt, tick, &state);
+    positionEstimateInternal(estimate, baro, tofMeasurement, dt, tick, &state);
 }
 
 void positionUpdateVelocity(float accWZ, float dt) {
-  positionUpdateVelocityInternal(accWZ, dt, &state);
+    positionUpdateVelocityInternal(accWZ, dt, &state);
 }
 
 static void positionEstimateInternal(state_t* estimate, const baro_t* baro, const tofMeasurement_t* tofMeasurement, float dt, uint32_t tick, struct selfState_s* state) {
-  float filteredZ;
-  static float prev_estimatedZ = 0;
-  static bool surfaceFollowingMode = false;
+    static float filteredZ = 0.0;
+    static float ground = 0.0;
+    static float prev_estimatedZ = 0.0;
+    static int8_t baro_init = 0;
+    // static bool surfaceFollowingMode = false;
 
-  const uint32_t MAX_SAMPLE_AGE = M2T(50);
+    // const uint32_t MAX_SAMPLE_AGE = M2T(50);
 
-  uint32_t now = xTaskGetTickCount();
-  bool isSampleUseful = ((now - tofMeasurement->timestamp) <= MAX_SAMPLE_AGE);
+    // uint32_t now = xTaskGetTickCount();
+    // bool isSampleUseful = ((now - tofMeasurement->timestamp) <= MAX_SAMPLE_AGE);
 
-  if (isSampleUseful) {
-    surfaceFollowingMode = true;
-  }
+    // if (isSampleUseful) {
+    //   surfaceFollowingMode = true;
+    // }
 
-  if (surfaceFollowingMode) {
-    if (isSampleUseful) {
-      // IIR filter zrange
-      filteredZ = (state->estAlphaZrange       ) * state->estimatedZ +
-                  (1.0f - state->estAlphaZrange) * tofMeasurement->distance;
-      // Use zrange as base and add velocity changes.
-      state->estimatedZ = filteredZ + (state->velocityFactor * state->velocityZ * dt);
+    // if (surfaceFollowingMode) {
+    //   if (isSampleUseful) {
+    //     // IIR filter zrange
+    //     filteredZ = (state->estAlphaZrange       ) * state->estimatedZ +
+    //                 (1.0f - state->estAlphaZrange) * tofMeasurement->distance;
+    //     // Use zrange as base and add velocity changes.
+    //     state->estimatedZ = filteredZ + (state->velocityFactor * state->velocityZ * dt);
+    //   }
+    // } else {
+      // FIXME: A bit of an hack to init IIR filter
+    if (baro_init == 0) {
+        if (sensorData->baro.asl == 0.0f)
+        {
+            filteredZ = 0.0;
+            ground = 0.0;
+        }
+        else {
+            ground = baro->asl;
+            filteredZ = baro->asl - ground;
+            baro_init = 1;
+        }
     }
-  } else {
-    // FIXME: A bit of an hack to init IIR filter
-    if (state->estimatedZ == 0.0f) {
-      filteredZ = baro->asl;
-    } else {
-      // IIR filter asl
-      filteredZ = (state->estAlphaAsl       ) * state->estimatedZ +
-                  (1.0f - state->estAlphaAsl) * baro->asl;
+    if (baro_init == 1) {
+        // IIR filter asl
+        filteredZ = (state->estAlphaAsl) * state->estimatedZ +
+            (1.0f - state->estAlphaAsl) * (baro->asl - ground);
     }
     // Use asl as base and add velocity changes.
-    state->estimatedZ = filteredZ + (state->velocityFactor * state->velocityZ * dt);
-  }
+    state->estimatedZ = filteredZ; // + (state->velocityFactor * state->velocityZ * dt);
+  // }
 
-  estimate->position.x = 0.0f;
-  estimate->position.y = 0.0f;
-  estimate->position.z = state->estimatedZ;
-  estimate->velocity.z = (state->estimatedZ - prev_estimatedZ) / dt;
-  state->estimatedVZ = estimate->velocity.z;
-  prev_estimatedZ = state->estimatedZ;
+    estimate->position.x = 0.0f;
+    estimate->position.y = 0.0f;
+    estimate->position.z = state->estimatedZ;
+    estimate->velocity.z = (state->estimatedZ - prev_estimatedZ) / dt;
+    state->estimatedVZ = estimate->velocity.z;
+    prev_estimatedZ = state->estimatedZ;
 }
 
 static void positionUpdateVelocityInternal(float accWZ, float dt, struct selfState_s* state) {
-  state->velocityZ += deadband(accWZ, state->vAccDeadband) * dt * G;
-  state->velocityZ *= state->velZAlpha;
+    // state->velocityZ += deadband(accWZ, state->vAccDeadband) * dt * G;
+    // state->velocityZ *= state->velZAlpha;
+    state->velocityZ = 0;
 }
 
 LOG_GROUP_START(posEstAlt)
