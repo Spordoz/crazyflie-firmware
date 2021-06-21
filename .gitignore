@@ -24,3 +24,12 @@ current_platform.mk
 /docs/.jekyll-metadata
 docs/.jekyll-cache
 
+*.db
+.vs/Flapper/v16/.suo
+*.db-shm
+*.db-wal
+*.opendb
+*.ipch
+.vs/CMake Overview
+.vs/ProjectSettings.json
+*.sqlite
