@@ -34,6 +34,7 @@
 #include "FreeRTOS.h"
 #include "num.h"
 #include "position_controller.h"
+#include "position_estimator.h"
 
 #define MIN_THRUST  1000
 #define MAX_THRUST  60000
@@ -80,7 +81,12 @@ static bool posHoldMode = false;
 static bool posSetMode = false;
 static bool modeSet = false;
 static bool takeoff = false;
+static bool enableLanding = false;
+static bool enableTakeoff = false;
 static int takeoffCounter = 0;
+static int thresholdCounter = 0;
+static float takeoffGround = 0.0f;
+const float TakeoffLandSpeed = 0.5f;
 
 /**
  * Rotate Yaw so that the Crazyflie will change what is considered front.
@@ -141,10 +147,12 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
 
   if (altHoldMode) {
     if (!modeSet) {             //Reset filter and PID values on first initiation of assist mode to prevent sudden reactions.
+      takeoffGround = getAltitude();
       modeSet = true;
       positionControllerResetAllPID();
       positionControllerResetAllfilters();
-      takeoff = true;
+      if (enableTakeoff)
+        takeoff = true;
     }
     setpoint->thrust = 0;
     setpoint->mode.z = modeVelocity;
@@ -153,14 +161,32 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
     if (takeoff) {
       takeoffCounter++;
       if (takeoffCounter >= 10) {
-        setpoint->velocity.z += 0.5f;
+        setpoint->velocity.z += TakeoffLandSpeed;
       }
-      if (takeoffCounter >= 150) {
+      if (getAltitude() - takeoffGround >= 0.5f)
+        thresholdCounter++;
+      else
+        thresholdCounter--;
+      if (thresholdCounter < 0)
+        thresholdCounter = 0;
+      if (thresholdCounter > 5)
+      {
         positionControllerResetAllPID();
         positionControllerResetAllfilters();
         takeoff = false;
+        enableTakeoff = false;
         takeoffCounter = 0;
+        thresholdCounter = 0;
       }
+    }
+    else if (enableLanding) {
+      setpoint->velocity.z -= TakeoffLandSpeed;
+      if (getAltitude() - takeoffGround <= 0.35f) {
+        altHoldMode = false;
+        enableLanding = false;
+      }
+      if (setpoint->velocity.z > 0.8f * (TakeoffLandSpeed * -1) || setpoint->velocity.z < 1.2f * (TakeoffLandSpeed * -1))
+        enableLanding = false;
     }
   }
   else {
@@ -253,7 +279,7 @@ void crtpCommanderRpytDecodeSetpoint(setpoint_t *setpoint, CRTPPacket *pk)
  *
  * These parameters have impact on which level and mode to use.
  */
-PARAM_GROUP_START(flightmode)
+PARAM_GROUP_START(modes)
 
 /**
  * @brief Keeps the quad at its current altitude automatically
@@ -295,4 +321,8 @@ PARAM_ADD_CORE(PARAM_UINT8, stabModePitch, &stabilizationModePitch)
  */
 PARAM_ADD_CORE(PARAM_UINT8, stabModeYaw, &stabilizationModeYaw)
 
-PARAM_GROUP_STOP(flightmode)
+PARAM_ADD(PARAM_UINT8, takeoff, &enableTakeoff)
+
+PARAM_ADD(PARAM_UINT8, landing, &enableLanding)
+
+PARAM_GROUP_STOP(modes)

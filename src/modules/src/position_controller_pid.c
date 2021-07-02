@@ -134,9 +134,9 @@ static struct this_s this = {
 
   .pidVZ = {
     .init = {
-      .kp = 12.5f, // 3.0f CF with baro
-      .ki = 0.5f, // 1.0f CF with baro
-      .kd = 0.0f, // 1.5f CF wit baro
+      .kp = 4.0f, // 3.0f CF with baro
+      .ki = 3.0f, // 1.0f CF with baro
+      .kd = 1.0f, // 1.5f CF wit baro
     },
     .pid.dt = DT,
   },

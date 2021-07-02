@@ -33,3 +33,4 @@ docs/.jekyll-cache
 .vs/CMake Overview
 .vs/ProjectSettings.json
 *.sqlite
+*.json
